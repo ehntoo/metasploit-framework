@@ -5,4 +5,5 @@ module Msf::Post::Hardware
   require 'msf/core/post/hardware/zigbee/utils'
   require 'msf/core/post/hardware/rftransceiver/rftransceiver'
   require 'msf/core/post/hardware/rftransceiver/nordicrf'
+  require 'msf/core/post/hardware/rftransceiver/usb_hid'
 end
