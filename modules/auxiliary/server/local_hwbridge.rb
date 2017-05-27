@@ -14,7 +14,7 @@ class MetasploitModule < Msf::Auxiliary
   include Msf::Exploit::Remote::HttpServer::HTML
   include Msf::Auxiliary::Report
 
-  HWBRIDGE_API_VERSION = "0.0.1"
+  HWBRIDGE_API_VERSION = "0.0.4"
 
   def initialize(info = {})
     super(update_info(info,
@@ -144,6 +144,7 @@ class MetasploitModule < Msf::Auxiliary
   def candump2hash(str_packets)
     hash = {}
     hash["Packets"] = []
+    return hash if str_packets.nil?
     lines = str_packets.split(/\n/)
     lines.each do |line|
       if line =~ /\w+\s+(\w+)   \[\d\]  (.+)$/
@@ -156,9 +157,27 @@ class MetasploitModule < Msf::Auxiliary
     hash
   end
 
-  def candump(bus, id, timeout, maxpkts)
+  # Sniff for CAN packets
+  # @param bus [String] Uniq bus identifier
+  # @param id [String] Hex ID to listen for, nil for all packets
+  # @param timeout [Integer] Timeout in miliseconds
+  # @param maxpkts [Integer] Max packets to receive
+  # @param filter [String] Hex filter mask, default if FFFFFF
+  # @return [String] Raw results from candump, pass to candump2hash for parsing
+  def candump(bus, id, timeout, maxpkts, filter="FFFFFF")
     $candump_sniffer = Thread.new do
-      output = `candump #{bus},#{id}:FFFFFF -T #{timeout} -n #{maxpkts}`
+      cmd = "candump #{bus}"
+      unless id.nil?
+        cmd+=",#{id}:#{filter}"
+      end
+      cmd+=" -T #{timeout}" if timeout
+      cmd+=" -n #{maxpkts}" if maxpkts
+      # If no timeout or maxpacket set we need to just set a default
+      # timeout to avoid endless loops
+      unless timeout && maxpkts
+        cmd+= " -T 2000"
+      end
+      output = `#{cmd}`
       @pkt_response = candump2hash(output)
       Thread::exit
     end
@@ -254,6 +273,23 @@ class MetasploitModule < Msf::Auxiliary
         timeout = $1 if request.uri =~ /&timeout=(\d+)/
         maxpkts = $1 if request.uri =~ /&maxpkts=(\d+)/
         send_response_html(cli, isotp_send_and_wait(bus, srcid, dstid, data, timeout, maxpkts).to_json(),  { 'Content-Type' => 'application/json' })
+      elsif request.uri =~ /automotive\/(\w+)\/candump\?/
+       result = {}
+       result["Success"] = false
+        bus = $1
+        params = CGI.parse(URI(request.uri).query)
+        mask = "FFFFFF"
+        id = params["filter_id"][0] if params.key? "filter_id"
+        mask = params["filter_mask"][0] if params.key? "filter_mask"
+        timeout = params["timeout"][0] if params.key? "timeout"
+        maxpkts = params["maxpkts"][0] if params.key? "maxpkts"
+        result = candump(bus, id, timeout, maxpkts, mask)
+        $candump_sniffer.join
+        unless @pkt_response.empty?
+          result["Success"] = true
+          result = @pkt_response
+        end
+        send_response_html(cli, result.to_json(), { 'Content-Type' => 'application/json' })
       else
         send_response_html(cli, not_supported().to_json(), { 'Content-Type' => 'application/json' })
       end

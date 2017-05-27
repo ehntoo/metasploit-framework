@@ -99,8 +99,15 @@ class Automotive < Extension
     client.send_request("/automotive/#{bus}/supported_methods")
   end
 
-  def cansend(bus, id, data)
-    client.send_request("/automotive/#{bus}/cansend?id=#{id}&data=#{data}")
+  # Sends a CAN packet
+  # @param bus [String] Unique string identifier for the bus
+  # @param id [String] Hex value of CAN ID
+  # @param data [String] Hex string of data
+  # @param opt [Hash] Optional hash that is appended to the URL request
+  def cansend(bus, id, data, opt={})
+    req = "/automotive/#{bus}/cansend?id=#{id}&data=#{data}"
+    req += "&#{URI.encode_www_form(opt)}" if opt.size > 0
+    client.send_request(req)
   end
 
   def send_isotp_and_wait_for_response(bus, src_id, dst_id, data, opt = {})
@@ -114,6 +121,20 @@ class Automotive < Extension
       return check_for_errors(client.send_request(request_str))
     end
     nil
+  end
+
+  # Requests a dump of packets.  You *really* should limit the time by using TIMEOUT since this
+  # is not a threaded process.
+  # @param bus [String] Unique string identifier for the target bus
+  # @param opt [Hash] Values TIMEOUT, MAXPKTS, FILTERID, and FILTERMASK
+  # @returns [Hash] Recorded packets, same format as send_isotp_and_waite_for_response
+  def candump(bus, opt = {})
+      request_str = "/automotive/#{bus}/candump?"
+      request_str += "&timeout=#{opt['TIMEOUT']}" if opt.key? "TIMEOUT"
+      request_str += "&maxpkts=#{opt['MAXPKTS']}" if opt.key? "MAXPKTS"
+      request_str += "&filter_id=#{opt['FILTERID']}" if opt.key? "FILTERID"
+      request_str += "&filter_mask=#{opt['FILTERMASK']}" if opt.key? "FILTERMASK"
+      client.send_request(request_str)
   end
 
   attr_reader :buses, :active_bus

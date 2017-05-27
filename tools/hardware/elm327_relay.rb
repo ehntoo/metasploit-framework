@@ -137,11 +137,14 @@ module ELM327HWBridgeRelay
     # Sends a serial command to the ELM327.  Automatically appends \r\n
     #
     # @param cmd [String] Serial AT command for ELM327
+    # @param timeout [Integer] Serial read timeout in miliseconds
     # @return [String] Response between command and '>' prompt
-    def send_cmd(cmd)
+    def send_cmd(cmd, timeout=0)
       @ser.write(cmd + "\r\n")
+      @ser.read_timeout = timeout
       resp = @ser.readline(">")
       resp = resp[0, resp.length - 2]
+      return if resp.nil?
       resp.chomp!
       resp
     end
@@ -157,7 +160,7 @@ module ELM327HWBridgeRelay
         $stdout.puts "Unable to connect to serial port.  See -h for help"
         exit -2
       end
-      resp = send_cmd("ATZ")  # Turn off ECHO
+      resp = send_cmd("ATZ", 0)  # Reset
       if resp =~ /ELM327/
         send_cmd("ATE0")  # Turn off ECHO
         send_cmd("ATL0")  # Disble linefeeds
@@ -184,7 +187,7 @@ module ELM327HWBridgeRelay
       status["hw_specialty"] = { "automotive" => true }
       status["hw_capabilities"] = { "can" => true}
       status["last_10_errors"] = @last_errors # NOTE: no support for this yet
-      status["api_version"] = "0.0.1"
+      status["api_version"] = "0.0.4"
       status["fw_version"] = "not supported"
       status["hw_version"] = "not supported"
       status["device_name"] = @device_name
@@ -257,6 +260,46 @@ module ELM327HWBridgeRelay
       result
     end
 
+    # The ELM327 devices are very bad at sniffing because
+    # of their limited buffer without a mask
+    def candump(id, timeout, maxpkts, filter)
+      result = {}
+      result["success"] = false
+      maxpkts = maxpkts.to_i
+      timeout = timeout.to_i
+      if id
+        send_cmd("ATCF#{id}")
+        send_cmd("ATCMFFF")
+        send_cmd("ATCM#{filter}") if filter
+      else
+        send_cmd("ATCM000") # No mask, aka all packets
+      end 
+      resp = send_cmd("ATMA", timeout)
+      if resp == "CAN ERROR"
+        result["success"] = false
+        return result
+      end
+      result["Packets"] = []
+      pkt_count = 0
+      resp.split(/\r/).each do |line|
+        pkt = {}
+        if line=~/^(\w+) (.+)/
+          pkt["ID"] = $1
+          data = $2
+          data.gsub!('<DATA ERROR','')
+          pkt["DATA"] = data.split
+          result["Packets"] << pkt unless pkt["ID"] == "BUFFER"
+          pkt_count += 1
+          if maxpkts > 0 && pkt_count >= maxpkts
+            result["success"] = true
+            return result
+          end
+        end
+      end
+      result["success"] = true
+      result
+    end
+
     # Sends ISO-TP Packets
     #
     # @param srcid [String] Sender ID as hex string
@@ -321,22 +364,29 @@ module ELM327HWBridgeRelay
           send_response_html(cli, get_supported_buses().to_json(), { 'Content-Type' => 'application/json' })
         elsif request.uri =~/automotive\/can0\/cansend/
           params = CGI.parse(URI(request.uri).query)
-          if params.has_key? "id" and params.has_key? "data"
+          if params.has_key? "id" and params.key? "data"
             send_response_html(cli, cansend(params["id"][0], params["data"][0]).to_json(), { 'Content-Type' => 'application/json' })
           else
             send_response_html(cli, not_supported().to_json(), { 'Content-Type' => 'application/json' })
           end
         elsif request.uri =~/automotive\/can0\/isotpsend_and_wait/
           params = CGI.parse(URI(request.uri).query)
-          if params.has_key? "srcid" and params.has_key? "dstid" and params.has_key? "data"
+          if params.has_key? "srcid" and params.key? "dstid" and params.has_key? "data"
             timeout = 1500
             maxpkts = 3
-            timeout = params["timeout"][0] if params.has_key? "timeout"
-            maxpkts = params["maxpkts"][0] if params.has_key? "maxpkts"
+            timeout = params["timeout"][0] if params.key? "timeout"
+            maxpkts = params["maxpkts"][0] if params.key? "maxpkts"
             send_response_html(cli, isotpsend_and_wait(params["srcid"][0], params["dstid"][0], params["data"][0], timeout, maxpkts).to_json(), { 'Content-Type' => 'application/json' })
           else
             send_response_html(cli, not_supported().to_json(), { 'Content-Type' => 'application/json' })
           end
+        elsif request.uri =~/automotive\/can0\/candump/
+          params = CGI.parse(URI(request.uri).query)
+          id = params["filter_id"][0] if params.key? "filter_id"
+          mask = params["filter_mask"][0] if params.key? "filter_mask"
+          timeout = params["timeout"][0] if params.key? "timeout"
+          maxpkts = params["maxpkts"][0] if params.key? "maxpkts"
+          send_response_html(cli, candump(id, timeout, maxpkts, mask).to_json(), { 'Content-Type' => 'application/json' })
         else
           send_response_html(cli, not_supported().to_json(), { 'Content-Type' => 'application/json' })
         end
