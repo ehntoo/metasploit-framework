@@ -21,7 +21,7 @@ module UDS
     data = []
     return data unless hash
     bad_count = 0
-    if hash.key? "Packets"
+    if hash.key? "Packets" and hash["Packets"].size > 0
       unless hash["Packets"].size > 1 # Not multiple packets
         pktdata = hash["Packets"][0]["DATA"]
         if pktdata[1] == 0x7F
@@ -107,7 +107,7 @@ module UDS
     packets = get_current_data(bus, src_id, dst_id, 0, { "MAXPKTS" => 1 })
     return pids if packets.nil?
     if (packets.key? "Packets") && !packets["Packets"].empty?
-      hexpids = packets["Packets"][0]["DATA"][3, 6]
+      hexpids = packets["Packets"][0]["DATA"][3, 4]
       hexpids = hexpids.join.hex.to_s(2).rjust(32, '0').split('') # Array of 1s and 0s
       (1..0x20).each do |pid|
         pids << pid if hexpids[pid-1] == "1"
@@ -116,7 +116,7 @@ module UDS
     if pids.include? 0x20
       packets = get_current_data(bus, src_id, dst_id, 0x20, { "MAXPKTS" => 1 })
       if (packets.key? "Packets") && !packets["Packets"].empty?
-        hexpids = packets["Packets"][0]["DATA"][3, 6]
+        hexpids = packets["Packets"][0]["DATA"][3, 4]
         hexpids = hexpids.join.hex.to_s(2).rjust(32, '0').split('') # Array of 1s and 0s
         (0x20..0x40).each do |pid|
           pids << pid if hexpids[pid-0x21] == "1"
@@ -126,7 +126,7 @@ module UDS
     if pids.include? 0x40
       packets = get_current_data(bus, src_id, dst_id, 0x40, { "MAXPKTS" => 1 })
       if (packets.key? "Packets") && !packets["Packets"].empty?
-        hexpids = packets["Packets"][0]["DATA"][3, 6]
+        hexpids = packets["Packets"][0]["DATA"][3, 4]
         hexpids = hexpids.join.hex.to_s(2).rjust(32, '0').split('') # Array of 1s and 0s
         (0x40..0x60).each do |pid|
           pids << pid if hexpids[pid-0x41] == "1"
@@ -136,7 +136,7 @@ module UDS
     if pids.include? 0x60
       packets = get_current_data(bus, src_id, dst_id, 0x60, { "MAXPKTS" => 1 })
       if (packets.key? "Packets") && !packets["Packets"].empty?
-        hexpids = packets["Packets"][0]["DATA"][3, 6]
+        hexpids = packets["Packets"][0]["DATA"][3, 4]
         hexpids = hexpids.join.hex.to_s(2).rjust(32, '0').split('') # Array of 1s and 0s
         (0x60..0x80).each do |pid|
           pids << pid if hexpids[pid-0x61] == "1"
@@ -146,7 +146,7 @@ module UDS
     if pids.include? 0x80
       packets = get_current_data(bus, src_id, dst_id, 0x80, { "MAXPKTS" => 1 })
       if (packets.key? "Packets") && !packets["Packets"].empty?
-        hexpids = packets["Packets"][0]["DATA"][3, 6]
+        hexpids = packets["Packets"][0]["DATA"][3, 4]
         hexpids = hexpids.join.hex.to_s(2).rjust(32, '0').split('') # Array of 1s and 0s
         (0x80..0xA0).each do |pid|
           pids << pid if hexpids[pid-0x81] == "1"
@@ -156,7 +156,7 @@ module UDS
     if pids.include? 0xA0
       packets = get_current_data(bus, src_id, dst_id, 0xA0, { "MAXPKTS" => 1 })
       if (packets.key? "Packets") && !packets["Packets"].empty?
-        hexpids = packets["Packets"][0]["DATA"][3, 6]
+        hexpids = packets["Packets"][0]["DATA"][3, 4]
         hexpids = hexpids.join.hex.to_s(2).rjust(32, '0').split('') # Array of 1s and 0s
         (0xA0..0xC0).each do |pid|
           pids << pid if hexpids[pid-0xA1] == "1"
@@ -166,7 +166,7 @@ module UDS
     if pids.include? 0xC0
       packets = get_current_data(bus, src_id, dst_id, 0xC0, { "MAXPKTS" => 1 })
       if (packets.key? "Packets") && !packets["Packets"].empty?
-        hexpids = packets["Packets"][0]["DATA"][3, 6]
+        hexpids = packets["Packets"][0]["DATA"][3, 4]
         hexpids = hexpids.join.hex.to_s(2).rjust(32, '0').split('') # Array of 1s and 0s
         (0xC0..0xE0).each do |pid|
           pids << pid if hexpids[pid - 0xC1] == "1"
@@ -393,7 +393,7 @@ module UDS
     end
     if (data.key? "Packets") && !data["Packets"].empty?
       data = response_hash_to_data_array(dst_id, data, 4)
-      if !data.empty? && data.even?
+      if !data.empty? && data.size.even?
         (0..data.size / 2).step(2) do |idx|
           code = ""
           case data[idx].hex & 0xC0 >> 3
@@ -509,7 +509,7 @@ module UDS
   # @param opt [Hash] Additional options to be passed to automotive.send_isotp_and_wait_for_response
   #
   # @return [Hash] client.automotive response
-  def get_vehicle_info(bus, src_id, dst_id, mode, opt = {})
+  def get_vehicle_info(bus, src_id, dst_id, mode, opt = { "MAXPKTS" => 10 })
     unless client.automotive
       print_error("Not an automotive hwbridge session")
       return {}
@@ -543,7 +543,7 @@ module UDS
         print_error("ECU Did not return a valid response")
         return []
       end
-      hexpids = packets["Packets"][0]["DATA"][3, 6]
+      hexpids = packets["Packets"][0]["DATA"][3, 4]
       hexpids = hexpids.join.hex.to_s(2).rjust(32, '0').split('') # Array of 1s and 0s
       (1..20).each do |pid|
         pids << pid if hexpids[pid - 1] == "1"
@@ -595,7 +595,7 @@ module UDS
   #
   # @return [String] ECU Name as ASCII
   def get_ecu_name(bus, src_id, dst_id)
-    packets = get_vehicle_info(bus, src_id, dst_id, 0x0A)
+    packets = get_vehicle_info(bus, src_id, dst_id, 0x0A, { "MAXPKTS" => 10 } )
     return "" if packets.nil?
     return "UDS ERR: #{packets['error']}" if packets.key? "error"
     data = response_hash_to_data_array(dst_id.to_s(16), packets)
